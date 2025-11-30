@@ -65,7 +65,7 @@ pppoptfile = /etc/ppp/options.l2tpd.client
 length bit = yes
 redial = yes
 redial timeout = 5
-max redials = 0
+max redials = 100000
 EOF
 
 # --- PPP options ---
