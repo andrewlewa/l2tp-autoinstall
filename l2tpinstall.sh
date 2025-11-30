@@ -6,6 +6,11 @@
 set -e
 
 # --- Input User ---
+echo "=== INSTALL L2TP/IPsec VPN CLIENT ==="
+echo "=== By Bandrew ==="
+echo "=== https://github.com/andrewlewa ==="
+echo ""
+echo ""
 read -p "Masukkan IP Server VPN: " VPN_IP
 read -p "Masukkan IPsec PSK: " VPN_PSK
 read -p "Masukkan Username VPN: " VPN_USER
