@@ -29,7 +29,7 @@ function confirm_input() {
 SERVER_IP=$(confirm_input "IP Server WireGuard" "$(input 'Masukkan IP server' '')")
 SERVER_PORT=$(confirm_input "Port Server WireGuard" "$(input 'Masukkan port server' '51820')")
 SERVER_PUBLIC_KEY=$(confirm_input "Public Key Server" "$(input 'Masukkan public key server' '')")
-USER_IP=$(confirm_input "IP Lokal User (format: 10.0.0.x/24)" "$(input 'Masukkan IP lokal user' '10.0.0.2/24')")
+USER_IP=$(confirm_input "IP Lokal User (misal 10.0.0.2/24)" "$(input 'Masukkan IP lokal user' '10.0.0.2/24')")
 
 # 2. Install WireGuard jika belum ada
 if ! command -v wg &> /dev/null
@@ -41,8 +41,8 @@ fi
 
 # 3. Buat kunci user
 WG_DIR="/etc/wireguard"
-sudo mkdir -p $WG_DIR
-sudo chmod 700 $WG_DIR
+sudo mkdir -p "$WG_DIR"
+sudo chmod 700 "$WG_DIR"
 
 USER_PRIVATE_KEY=$(wg genkey)
 USER_PUBLIC_KEY=$(echo $USER_PRIVATE_KEY | wg pubkey)
@@ -68,19 +68,27 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 EOL
 
-sudo chmod 600 $CLIENT_CONF
+sudo chmod 600 "$CLIENT_CONF"
 echo "Konfigurasi client dibuat di $CLIENT_CONF"
 
-# 6. Enable auto-start on boot
-sudo systemctl enable wg-quick@wg0-client
+# 6. Enable auto start on boot dengan systemd
+sudo systemctl enable wg-quick@wg0-client.service
 
-# 7. Opsi untuk langsung aktifkan WireGuard
+# 7. Tambahkan auto-reconnect unlimited via systemd override
+OVERRIDE_DIR="/etc/systemd/system/wg-quick@wg0-client.service.d"
+sudo mkdir -p "$OVERRIDE_DIR"
+sudo bash -c "cat > $OVERRIDE_DIR/override.conf" <<EOL
+[Service]
+Restart=always
+RestartSec=5
+EOL
+sudo systemctl daemon-reload
+
+# 8. Opsi untuk memulai WireGuard sekarang
 read -p "Apakah ingin langsung mengaktifkan WireGuard sekarang? (y/n): " start_now
 if [[ "$start_now" =~ ^[Yy]$ ]]; then
     sudo wg-quick up wg0-client
-    echo "WireGuard aktif!"
+    echo "WireGuard aktif dan auto-reconnect sudah diaktifkan!"
 else
     echo "Anda bisa mengaktifkannya nanti dengan: sudo wg-quick up wg0-client"
 fi
-
-echo "WireGuard akan otomatis aktif saat boot karena sudah di-enable."
