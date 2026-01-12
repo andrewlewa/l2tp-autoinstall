@@ -3,43 +3,40 @@
 WG_INTERFACE="wg0-client"
 WG_DIR="/etc/wireguard"
 
-# ===================== FUNCTIONS =====================
-input() {
-    local prompt="$1"
-    local default="$2"
-    read -p "$prompt [$default]: " val
-    echo "${val:-$default}"
+ask() {
+    local var
+    read -p "$1: " var
+    echo "$var"
 }
 
-confirm() {
+confirm_loop() {
     local name="$1"
     local value="$2"
+
     while true; do
-        echo "$name: $value"
+        echo "$name = $value"
         read -p "Benar? (y/n): " yn
         case $yn in
-            [Yy]*) break ;;
+            [Yy]*) echo "$value"; return ;;
             [Nn]*) read -p "Masukkan ulang $name: " value ;;
-            *) echo "y atau n" ;;
+            *) echo "Ketik y atau n" ;;
         esac
     done
-    echo "$value"
 }
 
-# ===================== INPUT =====================
-SERVER_IP=$(confirm "IP Server" "$(input 'Masukkan IP server' '')")
-SERVER_PORT=$(confirm "Port Server" "$(input 'Masukkan port server' '51820')")
-SERVER_PUBKEY=$(confirm "Public Key Server" "$(input 'Masukkan public key server' '')")
-USER_IP=$(confirm "IP Lokal User (contoh 10.0.0.2/24)" "$(input 'Masukkan IP lokal user' '10.0.0.2/24')")
+# ================= INPUT =================
+SERVER_IP=$(confirm_loop "IP Server" "$(ask 'Masukkan IP Server')")
+SERVER_PORT=$(confirm_loop "Port Server" "$(ask 'Masukkan Port Server')")
+SERVER_PUBKEY=$(confirm_loop "Public Key Server" "$(ask 'Masukkan Public Key Server')")
+USER_IP=$(confirm_loop "IP Lokal User (contoh 10.0.0.2/24)" "$(ask 'Masukkan IP Lokal User')")
 
-# ===================== INSTALL =====================
+# ================= INSTALL =================
 if ! command -v wg &>/dev/null; then
-    echo "Install WireGuard..."
     sudo apt update
     sudo apt install -y wireguard
 fi
 
-# ===================== KEYS =====================
+# ================= KEYS =================
 sudo mkdir -p "$WG_DIR"
 sudo chmod 700 "$WG_DIR"
 
@@ -47,14 +44,13 @@ USER_PRIVKEY=$(wg genkey)
 USER_PUBKEY=$(echo "$USER_PRIVKEY" | wg pubkey)
 
 echo
-echo "======================================"
-echo " PUBLIC KEY USER (KIRIM KE SERVER)"
-echo " $USER_PUBKEY"
-echo "======================================"
+echo "================ PUBLIC KEY USER ================"
+echo "$USER_PUBKEY"
+echo "================================================="
 echo
 
-# ===================== CONFIG =====================
-sudo bash -c "cat > $WG_DIR/$WG_INTERFACE.conf" <<EOF
+# ================= CONFIG =================
+sudo tee "$WG_DIR/$WG_INTERFACE.conf" > /dev/null <<EOF
 [Interface]
 PrivateKey = $USER_PRIVKEY
 Address = $USER_IP
@@ -69,18 +65,13 @@ EOF
 
 sudo chmod 600 "$WG_DIR/$WG_INTERFACE.conf"
 
-echo "Config dibuat: $WG_DIR/$WG_INTERFACE.conf"
-
-# ===================== AUTOSTART =====================
-echo "Enable WireGuard auto-start on boot..."
+# ================= AUTOSTART =================
 sudo systemctl enable wg-quick@$WG_INTERFACE.service
 
-# ===================== AUTO-RECONNECT (WRAPPER) =====================
-SERVICE="/etc/systemd/system/wg-autorestart@$WG_INTERFACE.service"
-
-sudo bash -c "cat > $SERVICE" <<EOF
+# ================= AUTO RECONNECT (SAFE) =================
+sudo tee /etc/systemd/system/wg-autorestart@$WG_INTERFACE.service > /dev/null <<EOF
 [Unit]
-Description=WireGuard AutoReconnect for $WG_INTERFACE
+Description=WireGuard AutoReconnect $WG_INTERFACE
 After=network-online.target
 Wants=network-online.target
 
@@ -98,12 +89,5 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable wg-autorestart@$WG_INTERFACE.service
 
-# ===================== START =====================
-read -p "Jalankan WireGuard sekarang? (y/n): " yn
-if [[ "$yn" =~ ^[Yy]$ ]]; then
-    sudo systemctl start wg-autorestart@$WG_INTERFACE.service
-    echo "WireGuard AKTIF + AUTO RECONNECT!"
-else
-    echo "Jalankan manual:"
-    echo "sudo systemctl start wg-autorestart@$WG_INTERFACE.service"
-fi
+read -p "Start sekarang? (y/n): " yn
+[[ "$yn" =~ ^[Yy]$ ]] && sudo systemctl start wg-autorestart@$WG_INTERFACE.service
