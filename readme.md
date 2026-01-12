@@ -9,3 +9,9 @@ uninstall script :
 ```shell
 bash -c "$(curl -L https://raw.githubusercontent.com/andrewlewa/l2tp-autoinstall/refs/heads/main/l2tpuninstall.sh)"
 ```
+
+wireguard install script :
+
+```shell
+bash -c "$(curl -L https://raw.githubusercontent.com/andrewlewa/l2tp-autoinstall/refs/heads/main/wireguardInstall.sh)"
+```
