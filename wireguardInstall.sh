@@ -1,93 +1,121 @@
 #!/bin/bash
 
-WG_INTERFACE="wg0-client"
-WG_DIR="/etc/wireguard"
+# Script untuk install dan konfigurasi WireGuard client di Ubuntu secara interaktif
+# Jalankan sebagai root: sudo bash script.sh
 
-ask() {
-    local var
-    read -p "$1: " var
-    echo "$var"
+# Fungsi untuk install WireGuard jika belum ada
+install_wireguard() {
+    if ! command -v wg &> /dev/null; then
+        echo "WireGuard belum terinstall. Menginstall sekarang..."
+        apt update
+        apt install -y wireguard
+    else
+        echo "WireGuard sudah terinstall."
+    fi
 }
 
-confirm_loop() {
-    local name="$1"
-    local value="$2"
-
-    while true; do
-        echo "$name = $value"
-        read -p "Benar? (y/n): " yn
-        case $yn in
-            [Yy]*) echo "$value"; return ;;
-            [Nn]*) read -p "Masukkan ulang $name: " value ;;
-            *) echo "Ketik y atau n" ;;
-        esac
-    done
+# Fungsi untuk generate key jika belum ada
+generate_keys() {
+    if [ ! -f /etc/wireguard/private.key ]; then
+        wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
+        chmod 600 /etc/wireguard/private.key
+    fi
+    PUBLIC_KEY=$(cat /etc/wireguard/public.key)
+    PRIVATE_KEY=$(cat /etc/wireguard/private.key)
 }
 
-# ================= INPUT =================
-SERVER_IP=$(confirm_loop "IP Server" "$(ask 'Masukkan IP Server')")
-SERVER_PORT=$(confirm_loop "Port Server" "$(ask 'Masukkan Port Server')")
-SERVER_PUBKEY=$(confirm_loop "Public Key Server" "$(ask 'Masukkan Public Key Server')")
-USER_IP=$(confirm_loop "IP Lokal User (contoh 10.0.0.2/24)" "$(ask 'Masukkan IP Lokal User')")
-
-# ================= INSTALL =================
-if ! command -v wg &>/dev/null; then
-    sudo apt update
-    sudo apt install -y wireguard
-fi
-
-# ================= KEYS =================
-sudo mkdir -p "$WG_DIR"
-sudo chmod 700 "$WG_DIR"
-
-USER_PRIVKEY=$(wg genkey)
-USER_PUBKEY=$(echo "$USER_PRIVKEY" | wg pubkey)
-
-echo
-echo "================ PUBLIC KEY USER ================"
-echo "$USER_PUBKEY"
-echo "================================================="
-echo
-
-# ================= CONFIG =================
-sudo tee "$WG_DIR/$WG_INTERFACE.conf" > /dev/null <<EOF
+# Fungsi untuk buat config file
+create_config() {
+    cat << EOF > /etc/wireguard/wg0.conf
 [Interface]
-PrivateKey = $USER_PRIVKEY
-Address = $USER_IP
-DNS = 1.1.1.1
+Address = $LOCAL_IP
+PrivateKey = $PRIVATE_KEY
+DNS = 8.8.8.8  # Bisa diganti jika perlu
 
 [Peer]
 PublicKey = $SERVER_PUBKEY
-Endpoint = $SERVER_IP:$SERVER_PORT
-AllowedIPs = 0.0.0.0/0
-PersistentKeepalive = 25
+Endpoint = $SERVER_IP:$PORT
+AllowedIPs = 0.0.0.0/0  # Route all traffic through VPN
+PersistentKeepalive = 25  # Untuk auto reconnect instant
 EOF
+}
 
-sudo chmod 600 "$WG_DIR/$WG_INTERFACE.conf"
+# Fungsi untuk enable auto start on boot
+enable_autostart() {
+    systemctl enable wg-quick@wg0
+    echo "Auto start on boot telah diaktifkan."
+}
 
-# ================= AUTOSTART =================
-sudo systemctl enable wg-quick@$WG_INTERFACE.service
+# Mulai script
+if [ "$EUID" -ne 0 ]; then
+    echo "Jalankan script ini sebagai root: sudo bash $0"
+    exit 1
+fi
 
-# ================= AUTO RECONNECT (SAFE) =================
-sudo tee /etc/systemd/system/wg-autorestart@$WG_INTERFACE.service > /dev/null <<EOF
-[Unit]
-Description=WireGuard AutoReconnect $WG_INTERFACE
-After=network-online.target
-Wants=network-online.target
+install_wireguard
+generate_keys
 
-[Service]
-Type=simple
-ExecStart=/usr/bin/wg-quick up $WG_INTERFACE
-ExecStop=/usr/bin/wg-quick down $WG_INTERFACE
-Restart=always
-RestartSec=5
+# Loop utama untuk input dan edit
+while true; do
+    # Input data
+    read -p "Masukkan IP server: " SERVER_IP
+    read -p "Masukkan port server: " PORT
+    read -p "Masukkan public key server: " SERVER_PUBKEY
+    read -p "Masukkan IP lokal untuk client (contoh: 10.0.0.2/32): " LOCAL_IP
 
-[Install]
-WantedBy=multi-user.target
-EOF
+    # Tampilkan summary
+    echo ""
+    echo "Summary konfigurasi:"
+    echo "1. IP server: $SERVER_IP"
+    echo "2. Port: $PORT"
+    echo "3. Public key server: $SERVER_PUBKEY"
+    echo "4. IP lokal client: $LOCAL_IP"
+    echo "5. Public key client Anda: $PUBLIC_KEY"
+    echo ""
 
-sudo systemctl daemon-reload
-sudo systemctl enable wg-autorestart@$WG_INTERFACE.service
+    # Konfirmasi
+    read -p "Apakah data di atas benar? (y/n): " CONFIRM
+    if [ "$CONFIRM" == "y" ] || [ "$CONFIRM" == "Y" ]; then
+        break
+    else
+        while true; do
+            read -p "Masukkan nomor field yang ingin di-edit (1-4, atau 'q' untuk batal): " EDIT_FIELD
+            if [ "$EDIT_FIELD" == "q" ]; then
+                exit 0
+            fi
+            case $EDIT_FIELD in
+                1) read -p "Masukkan IP server baru: " SERVER_IP ;;
+                2) read -p "Masukkan port baru: " PORT ;;
+                3) read -p "Masukkan public key server baru: " SERVER_PUBKEY ;;
+                4) read -p "Masukkan IP lokal baru: " LOCAL_IP ;;
+                *) echo "Nomor tidak valid. Coba lagi." ;;
+            esac
+            # Tampilkan summary lagi setelah edit
+            echo ""
+            echo "Summary konfigurasi terupdate:"
+            echo "1. IP server: $SERVER_IP"
+            echo "2. Port: $PORT"
+            echo "3. Public key server: $SERVER_PUBKEY"
+            echo "4. IP lokal client: $LOCAL_IP"
+            echo "5. Public key client Anda: $PUBLIC_KEY"
+            echo ""
+            read -p "Apakah sekarang benar? (y/n): " CONFIRM
+            if [ "$CONFIRM" == "y" ] || [ "$CONFIRM" == "Y" ]; then
+                break 2
+            fi
+        done
+    fi
+done
 
-read -p "Start sekarang? (y/n): " yn
-[[ "$yn" =~ ^[Yy]$ ]] && sudo systemctl start wg-autorestart@$WG_INTERFACE.service
+# Buat config
+create_config
+
+# Enable auto start
+enable_autostart
+
+# Start VPN
+wg-quick up wg0
+echo "WireGuard client telah dikonfigurasi dan dijalankan."
+echo "Public key client Anda: $PUBLIC_KEY"
+echo "Untuk stop: wg-quick down wg0"
+echo "Fitur auto reconnect diaktifkan dengan PersistentKeepalive=25 (reconnect setiap 25 detik jika putus)."
